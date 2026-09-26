@@ -43,6 +43,12 @@ td.r{text-align:right}
 .legend{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--mute);margin-top:8px}
 .legend i{flex:1;height:10px;border-radius:5px;background:linear-gradient(90deg,#9be38f,#2eb82e,#f5e22c,#f59d1c,#e0392b,#b0167e)}
 .muted{color:var(--mute);font-size:12px}
+.fhead{display:flex;gap:10px;align-items:center;margin-bottom:10px}
+.fgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;font-variant-numeric:tabular-nums}
+.spark{display:flex;align-items:flex-end;gap:3px;height:54px;margin-top:12px;position:relative}
+.spark i{flex:1;background:var(--rain);border-radius:3px 3px 0 0;opacity:.8;min-height:2px}
+.spark i.past{opacity:.35}.spark i.hi{background:var(--bad)}
+.spark .line{position:absolute;left:0;right:0;border-top:1.5px dashed var(--bad)}
 .pickbtn{width:100%;padding:11px;background:var(--card);color:var(--acc);border:1.5px solid var(--acc);font-weight:600}
 #picker{position:fixed;inset:0;z-index:9999;background:var(--bg)}
 #pmap{position:absolute;inset:0}
@@ -72,6 +78,16 @@ td.r{text-align:right}
 
   <section class="card"><div class="now"><div class="t" id="tnow">--°</div><div><div id="wnow">-</div><div class="d" id="dnow"></div></div></div>
     <p class="alert" id="alert"></p></section>
+
+  <section class="card flood" id="flood"><h2>🌊 เสี่ยงน้ำท่วม</h2>
+    <div class="fhead"><span class="pill" id="fLevel">…</span><b id="fMsg">กำลังเช็ค…</b></div>
+    <div class="fgrid">
+      <div><div class="muted">ฝนสะสม 24 ชม.</div><b id="fR1">-</b></div>
+      <div><div class="muted">ฝนสะสม 3 วัน</div><b id="fR3">-</b></div>
+      <div><div class="muted">น้ำในลำน้ำใกล้ ๆ</div><b id="fRiv">-</b></div>
+    </div>
+    <div class="spark" id="fSpark"></div>
+    <p class="muted" id="fNote"></p></section>
 
   <section class="card"><h2>ฝน 24 ชม. ข้างหน้า (% โอกาส)</h2><div class="hours" id="hours"></div></section>
 
@@ -126,7 +142,7 @@ async function load(p){
       fetch(base+"&current=temperature_2m,apparent_temperature,weather_code,relative_humidity_2m&hourly=precipitation_probability,precipitation&daily=weather_code,precipitation_probability_max&forecast_days=7").then(r=>r.json()),
       fetch(base+"&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&forecast_days=7&models="+MODELS.join(",")).then(r=>r.json())
     ]);
-    renderNow(best);renderHours(best);renderDays(best,multi);renderMap(p);
+    renderNow(best);renderHours(best);renderDays(best,multi);renderMap(p);renderFlood(best,multi,p);
   }catch(e){$("place").textContent="โหลดไม่ได้: เช็คเน็ตแล้วลองใหม่"}
 }
 
@@ -176,6 +192,42 @@ function renderDays(b,m){
       <td class="r"><span class="pill conf" style="background:${col}">${lbl}</span></td></tr>`;
   }
   $("days").innerHTML=rows;
+}
+
+// ---- เตือนน้ำท่วม: ฝนสะสม (น้ำรอระบาย/น้ำป่า) + น้ำในลำน้ำ GloFAS เทียบสถิติ 10 ปี ----
+function pct(a,q){const s=[...a].sort((x,y)=>x-y);return s[Math.min(s.length-1,Math.floor(q*s.length))]}
+async function renderFlood(b,m,p){
+  const now=Date.now(),H=b.hourly;let r24=0;
+  for(let i=0;i<H.time.length;i++){const t=new Date(H.time[i]).getTime();if(t>=now-3.6e6&&t<now+23*3.6e6)r24+=H.precipitation[i]||0}
+  const d=m.daily,rain=i=>{const v=MODELS.map(k=>d["precipitation_sum_"+k]?.[i]).filter(x=>x!=null);return v.length?v.reduce((a,c)=>a+c)/v.length:0};
+  const r3=rain(0)+rain(1)+rain(2);
+  let lvl=0,why=[];
+  // เกณฑ์ฝนแบบกรมอุตุฯ: หนัก 35–90 มม./วัน, หนักมาก >90
+  if(r24>=90){lvl=2;why.push("ฝนหนักมากใน 24 ชม.")}else if(r24>=50){lvl=Math.max(lvl,1);why.push("ฝนหนักใน 24 ชม.")}
+  if(r3>=150){lvl=2;why.push("ฝนสะสม 3 วันสูงมาก")}else if(r3>=90){lvl=Math.max(lvl,1);why.push("ฝนสะสม 3 วันเยอะ")}
+  $("fR1").textContent=r24.toFixed(0)+" มม.";$("fR3").textContent=r3.toFixed(0)+" มม.";
+  let rivTxt="ไม่มีข้อมูล",note="";
+  try{
+    const y=new Date(now-864e5).toISOString().slice(0,10),from=new Date(now-10*365*864e5).toISOString().slice(0,10);
+    const u=`https://flood-api.open-meteo.com/v1/flood?latitude=${p.lat}&longitude=${p.lon}&daily=river_discharge`;
+    const [hist,fc]=await Promise.all([fetch(u+`&start_date=${from}&end_date=${y}`).then(r=>r.json()),fetch(u+"&past_days=7&forecast_days=14").then(r=>r.json())]);
+    const hv=hist.daily.river_discharge.filter(x=>x!=null),fv=fc.daily.river_discharge;
+    const p90=pct(hv,.9),p98=pct(hv,.98),med=pct(hv,.5);
+    const ahead=fv.slice(7),peak=Math.max(...ahead),pi=ahead.indexOf(peak);
+    const when=pi===0?"วันนี้":new Date(fc.daily.time[7+pi]).toLocaleDateString("th-TH",{weekday:"short",day:"numeric",month:"short"});
+    const ratio=peak/(med||1);
+    if(peak>=p98){lvl=2;why.push(`ลำน้ำจะขึ้นสูงสุดในรอบ 10 ปี ช่วง${when}`)}
+    else if(peak>=p90){lvl=Math.max(lvl,1);why.push(`ลำน้ำสูงกว่าปกติ ช่วง${when}`)}
+    rivTxt=ratio>=1.5?`${ratio.toFixed(1)}× ปกติ`:"ปกติ";
+    const mx=Math.max(...fv,p98);
+    $("fSpark").innerHTML=fv.map((v,i)=>`<i class="${i<7?"past":""} ${v>=p90?"hi":""}" style="height:${v/mx*100}%" title="${fc.daily.time[i]}: ${v} m³/s"></i>`).join("")+`<div class="line" style="bottom:${p90/mx*100}%"></div>`;
+    note="กราฟ: ปริมาณน้ำในลำน้ำ 7 วันก่อน (จาง) → 14 วันข้างหน้า · เส้นประแดง = ระดับที่สูงกว่า 90% ของ 10 ปีที่ผ่านมา · ข้อมูล GloFAS ละเอียด ~5 กม. ";
+  }catch(e){$("fSpark").innerHTML="";note="โหลดข้อมูลลำน้ำไม่ได้ ใช้แค่ฝนสะสม · "}
+  $("fRiv").textContent=rivTxt;
+  const L=[["ปกติ","var(--good)","✅ ยังไม่มีสัญญาณน้ำท่วม"],["เฝ้าระวัง","var(--warn)","⚠️ เฝ้าระวัง: "],["เสี่ยงสูง","var(--bad)","🚨 เสี่ยงน้ำท่วม: "]][lvl];
+  $("fLevel").textContent=L[0];$("fLevel").style.background=L[1];
+  $("fMsg").textContent=lvl?L[2]+why.join(", "):L[2];
+  $("fNote").textContent=note+"ไม่ได้ดูระบบระบายน้ำเมือง/เขื่อนปล่อยน้ำ ให้ฟังประกาศ ปภ. ประกอบ";
 }
 
 async function renderMap(p){
