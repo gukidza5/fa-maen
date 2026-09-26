@@ -36,7 +36,12 @@ table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font
 td{padding:7px 4px;border-top:1px solid var(--line)}
 td.r{text-align:right}
 .conf{font-size:12px}
-#map{height:300px;border-radius:10px}
+#map{height:340px;border-radius:10px}
+.rtop{display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px;font-size:14px;margin-bottom:6px}
+.track{height:4px;background:var(--line);border-radius:4px;margin-bottom:8px;overflow:hidden}
+.track i{display:block;height:100%;background:var(--acc);transition:width .3s}
+.legend{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--mute);margin-top:8px}
+.legend i{flex:1;height:10px;border-radius:5px;background:linear-gradient(90deg,#9be38f,#2eb82e,#f5e22c,#f59d1c,#e0392b,#b0167e)}
 .muted{color:var(--mute);font-size:12px}
 #results button{display:block;width:100%;text-align:left;background:none;border:0;border-top:1px solid var(--line);padding:8px 2px;cursor:pointer}
 </style>
@@ -57,8 +62,11 @@ td.r{text-align:right}
     <table id="days"></table>
     <p class="muted">"มั่นใจ" = โมเดลเห็นตรงกันแค่ไหน ยิ่งต่างกันมาก ยิ่งไม่แน่นอน</p></section>
 
-  <section class="card"><h2>เรดาร์ฝนสด (RainViewer)</h2><div id="map"></div>
-    <p class="muted" id="radarTime"></p></section>
+  <section class="card"><h2>เรดาร์ฝน · ภาพขยับให้เห็นว่าฝนไปทางไหน</h2>
+    <div class="rtop"><span id="radarTime">กำลังโหลด…</span><span class="muted">🔴 = มึง · วงใน 10 กม. · วงนอก 25 กม.</span></div>
+    <div class="track"><i id="radarBar"></i></div>
+    <div id="map"></div>
+    <div class="legend"><span>ฝนเบา</span><i></i><span>หนักมาก</span></div></section>
 
   <p class="muted">ข้อมูล: Open-Meteo, RainViewer · ไม่มีพยากรณ์ไหนแม่น 100% ดูเปอร์เซ็นต์ประกอบ</p>
 </main>
@@ -137,17 +145,32 @@ function renderDays(b,m){
 
 async function renderMap(p){
   if(!window.L)return;
-  if(!map){map=L.map("map",{attributionControl:false}).setView([p.lat,p.lon],8);
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",{maxZoom:12}).addTo(map);}
-  else map.setView([p.lat,p.lon],8);
+  if(!map){map=L.map("map",{attributionControl:false,zoomControl:false}).setView([p.lat,p.lon],9);
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:12}).addTo(map);}
+  else map.setView([p.lat,p.lon],9);
+  // หมุดตำแหน่ง + วง 10 กม. / 25 กม.
+  if(me)me.forEach(l=>map.removeLayer(l));
+  me=[L.circle([p.lat,p.lon],{radius:25000,color:"#12242f",weight:1,dashArray:"4 6",fill:false}),
+      L.circle([p.lat,p.lon],{radius:10000,color:"#12242f",weight:1.5,fill:false}),
+      L.circleMarker([p.lat,p.lon],{radius:7,color:"#fff",weight:3,fillColor:"#e0392b",fillOpacity:1})];
+  me.forEach(l=>l.addTo(map));
   try{
     const j=await fetch("https://api.rainviewer.com/public/weather-maps.json").then(r=>r.json());
-    const f=j.radar.past.at(-1);
-    if(radar)map.removeLayer(radar);
-    radar=L.tileLayer(`${j.host}${f.path}/256/{z}/{x}/{y}/2/1_1.png`,{opacity:.7,maxNativeZoom:7,maxZoom:12}).addTo(map);
-    $("radarTime").textContent="อัปเดตเรดาร์ "+new Date(f.time*1000).toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"})+" น.";
+    frames=[...j.radar.past.slice(-6),...(j.radar.nowcast||[])];
+    clearInterval(anim);layers.forEach(l=>map.removeLayer(l));
+    // สีแบบ TWC (4): เขียว→เหลือง→แดง ตรงกับแถบสีข้างล่าง
+    layers=frames.map(f=>L.tileLayer(`${j.host}${f.path}/256/{z}/{x}/{y}/4/1_1.png`,{opacity:0,maxNativeZoom:7,maxZoom:12}).addTo(map));
+    const nowIdx=j.radar.past.slice(-6).length-1;
+    let i=nowIdx;
+    const show=k=>{layers.forEach((l,n)=>l.setOpacity(n===k?.8:0));
+      const f=frames[k],t=new Date(f.time*1000).toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"});
+      $("radarTime").innerHTML=k===nowIdx?`<b>ตอนนี้</b> ${t} น.`:k>nowIdx?`<b style="color:var(--warn)">คาดการณ์</b> ${t} น.`:`ย้อนหลัง ${t} น.`;
+      $("radarBar").style.width=((k+1)/frames.length*100)+"%";};
+    show(i);
+    anim=setInterval(()=>{i=(i+1)%frames.length;show(i)},900);
   }catch(e){$("radarTime").textContent="โหลดเรดาร์ไม่ได้"}
 }
+let me,frames=[],layers=[],anim;
 
 async function search(){
   const q=$("q").value.trim();if(!q)return;
