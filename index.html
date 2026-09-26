@@ -183,7 +183,7 @@ async function search(){
   const near=cur?`&lat=${cur.lat}&lon=${cur.lon}`:"";
   // Photon เก่งเรื่องสถานที่ (ร้าน วัด โรงเรียน) + Nominatim เก่งเรื่องเขตปกครอง รวมกัน
   const [ph,nm]=await Promise.all([
-    fetch(`https://photon.komoot.io/api/?limit=8&q=${encodeURIComponent(q)}${near}`).then(r=>r.json()).catch(()=>({features:[]})),
+    fetch(`https://photon.komoot.io/api/?limit=10&lang=default&bbox=97.3,5.6,105.7,20.5&q=${encodeURIComponent(q)}${near}`).then(r=>r.json()).catch(()=>({features:[]})),
     fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&countrycodes=th&accept-language=th&q=${encodeURIComponent(q)}`).then(r=>r.json()).catch(()=>[])
   ]);
   if(my!==seq)return;
@@ -191,10 +191,13 @@ async function search(){
   const add=(name,sub,type,lat,lon)=>{
     if(list.some(x=>Math.abs(x.lat-lat)<.003&&Math.abs(x.lon-lon)<.003))return;
     list.push({name,sub,type,lat:+(+lat).toFixed(4),lon:+(+lon).toFixed(4)});};
-  for(const f of ph.features||[]){const p=f.properties;
-    add(p.name||p.street,[p.street&&p.name?p.street:"",p.district,p.city||p.county,p.state].filter(Boolean).join(", "),TYPE[p.osm_value]||"📍",f.geometry.coordinates[1],f.geometry.coordinates[0]);}
   for(const r of nm){const parts=r.display_name.split(",").map(s=>s.trim());
     add(r.name||parts[0],parts.slice(1,4).join(", "),TYPE[r.type]||"📍",r.lat,r.lon);}
+  for(const f of ph.features||[]){const p=f.properties;
+    add(p.name||p.street,[p.street&&p.name?p.street:"",p.district,p.city||p.county,p.state].filter(Boolean).join(", "),TYPE[p.osm_value]||"📍",f.geometry.coordinates[1],f.geometry.coordinates[0]);}
+  // ชื่อที่มีคำค้นอยู่ครบขึ้นก่อน ที่เหลือเรียงตามเดิม
+  const hit=x=>x.name&&x.name.includes(q)?0:1;
+  list.sort((a,b)=>hit(a)-hit(b));
   box.innerHTML=list.slice(0,10).map(p=>`<button data-p="${esc(JSON.stringify({name:p.name,lat:p.lat,lon:p.lon}))}"><b>${esc(p.name)}</b> <span class="muted">${p.type}</span><br><span class="muted">${esc(p.sub)}</span></button>`).join("")
     ||"ไม่เจอ ลองพิมพ์ชื่อร้าน วัด โรงเรียน หรืออำเภอ<br><span class='muted'>หรือแตะบนแผนที่เรดาร์เพื่อเลือกจุดเอง</span>";
 }
