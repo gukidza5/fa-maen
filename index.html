@@ -49,7 +49,7 @@ td.r{text-align:right}
 <body>
 <main>
   <header><h1>☁️ ฟ้าแม่น</h1><button class="btn" id="gps">📍 ตำแหน่งกู</button></header>
-  <div class="search"><input id="q" placeholder="ค้นหา เช่น ไทรน้อย, เชียงใหม่"><button class="btn" id="go">ค้น</button></div>
+  <div class="search"><input id="q" placeholder="ค้นหาร้าน วัด โรงเรียน หมู่บ้าน อำเภอ…"><button class="btn" id="go">ค้น</button></div>
   <div id="results" class="card" hidden></div>
   <div id="place" class="muted">กำลังโหลด…</div>
 
@@ -63,7 +63,7 @@ td.r{text-align:right}
     <p class="muted">"มั่นใจ" = โมเดลเห็นตรงกันแค่ไหน ยิ่งต่างกันมาก ยิ่งไม่แน่นอน</p></section>
 
   <section class="card"><h2>เรดาร์ฝน · ภาพขยับให้เห็นว่าฝนไปทางไหน</h2>
-    <div class="rtop"><span id="radarTime">กำลังโหลด…</span><span class="muted">🔴 = มึง · วงใน 10 กม. · วงนอก 25 กม.</span></div>
+    <div class="rtop"><span id="radarTime">กำลังโหลด…</span><span class="muted">🔴 = มึง · วงใน 10 กม. · วงนอก 25 กม. · แตะแผนที่เพื่อเลือกจุด</span></div>
     <div class="track"><i id="radarBar"></i></div>
     <div id="map"></div>
     <div class="legend"><span>ฝนเบา</span><i></i><span>หนักมาก</span></div></section>
@@ -84,7 +84,7 @@ function save(p){try{localStorage.setItem("place",JSON.stringify(p))}catch(e){}}
 function loadSaved(){try{return JSON.parse(localStorage.getItem("place"))}catch(e){return null}}
 
 async function load(p){
-  save(p);$("place").textContent="📍 "+p.name;
+  cur=p;save(p);$("place").textContent="📍 "+p.name;
   const base=`https://api.open-meteo.com/v1/forecast?latitude=${p.lat}&longitude=${p.lon}&timezone=auto`;
   try{
     const [best,multi]=await Promise.all([
@@ -146,7 +146,8 @@ function renderDays(b,m){
 async function renderMap(p){
   if(!window.L)return;
   if(!map){map=L.map("map",{attributionControl:false,zoomControl:false}).setView([p.lat,p.lon],9);
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:12}).addTo(map);}
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:15}).addTo(map);
+    map.on("click",pickOnMap);}
   else map.setView([p.lat,p.lon],9);
   // หมุดตำแหน่ง + วง 10 กม. / 25 กม.
   if(me)me.forEach(l=>map.removeLayer(l));
@@ -172,20 +173,44 @@ async function renderMap(p){
 }
 let me,frames=[],layers=[],anim;
 
+const TYPE={school:"🏫 โรงเรียน",university:"🎓 มหาวิทยาลัย",hospital:"🏥 โรงพยาบาล",clinic:"🏥 คลินิก",place_of_worship:"🛕 วัด/ศาสนสถาน",marketplace:"🛒 ตลาด",mall:"🛍️ ห้าง",supermarket:"🛒 ซูเปอร์มาร์เก็ต",convenience:"🏪 ร้านสะดวกซื้อ",restaurant:"🍜 ร้านอาหาร",cafe:"☕ คาเฟ่",fuel:"⛽ ปั๊ม",bank:"🏦 ธนาคาร",hotel:"🏨 โรงแรม",station:"🚉 สถานี",park:"🌳 สวน",police:"👮 สถานีตำรวจ",townhall:"🏛️ ที่ว่าการ",village:"🏘️ หมู่บ้าน",hamlet:"🏘️ หมู่บ้าน",suburb:"📍 ย่าน",city:"🏙️ เมือง",town:"🏙️ เมือง",residential:"🏘️ หมู่บ้าน/ที่พัก"};
+const esc=s=>String(s).replace(/[&<>"']/g,c=>"&#"+c.charCodeAt(0)+";");
+let cur=null,seq=0;
 async function search(){
-  const q=$("q").value.trim();if(!q)return;
-  const box=$("results");box.hidden=false;box.textContent="กำลังค้น…";
-  let list=[];
-  try{
-    // OpenStreetMap รู้จักชื่อไทยถึงระดับอำเภอ/ตำบล
-    const j=await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&accept-language=th&q=${encodeURIComponent(q)}`).then(r=>r.json());
-    list=j.map(r=>({name:r.display_name.split(",").slice(0,3).join(",").trim(),lat:+(+r.lat).toFixed(3),lon:+(+r.lon).toFixed(3),full:r.display_name}));
-  }catch(e){}
-  const esc=s=>s.replace(/[&<>"']/g,c=>"&#"+c.charCodeAt(0)+";");
-  box.innerHTML=list.map(p=>`<button data-p="${esc(JSON.stringify({name:p.name,lat:p.lat,lon:p.lon}))}">${esc(p.full)}</button>`).join("")||"ไม่เจอ ลองพิมพ์ชื่ออำเภอหรือจังหวัด";
+  const q=$("q").value.trim();const box=$("results");
+  if(q.length<2){box.hidden=true;return}
+  const my=++seq;box.hidden=false;box.textContent="กำลังค้น…";
+  const near=cur?`&lat=${cur.lat}&lon=${cur.lon}`:"";
+  // Photon เก่งเรื่องสถานที่ (ร้าน วัด โรงเรียน) + Nominatim เก่งเรื่องเขตปกครอง รวมกัน
+  const [ph,nm]=await Promise.all([
+    fetch(`https://photon.komoot.io/api/?limit=8&q=${encodeURIComponent(q)}${near}`).then(r=>r.json()).catch(()=>({features:[]})),
+    fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&countrycodes=th&accept-language=th&q=${encodeURIComponent(q)}`).then(r=>r.json()).catch(()=>[])
+  ]);
+  if(my!==seq)return;
+  const list=[];
+  const add=(name,sub,type,lat,lon)=>{
+    if(list.some(x=>Math.abs(x.lat-lat)<.003&&Math.abs(x.lon-lon)<.003))return;
+    list.push({name,sub,type,lat:+(+lat).toFixed(4),lon:+(+lon).toFixed(4)});};
+  for(const f of ph.features||[]){const p=f.properties;
+    add(p.name||p.street,[p.street&&p.name?p.street:"",p.district,p.city||p.county,p.state].filter(Boolean).join(", "),TYPE[p.osm_value]||"📍",f.geometry.coordinates[1],f.geometry.coordinates[0]);}
+  for(const r of nm){const parts=r.display_name.split(",").map(s=>s.trim());
+    add(r.name||parts[0],parts.slice(1,4).join(", "),TYPE[r.type]||"📍",r.lat,r.lon);}
+  box.innerHTML=list.slice(0,10).map(p=>`<button data-p="${esc(JSON.stringify({name:p.name,lat:p.lat,lon:p.lon}))}"><b>${esc(p.name)}</b> <span class="muted">${p.type}</span><br><span class="muted">${esc(p.sub)}</span></button>`).join("")
+    ||"ไม่เจอ ลองพิมพ์ชื่อร้าน วัด โรงเรียน หรืออำเภอ<br><span class='muted'>หรือแตะบนแผนที่เรดาร์เพื่อเลือกจุดเอง</span>";
 }
-$("results").onclick=e=>{const d=e.target.dataset.p;if(d){$("results").hidden=true;load(JSON.parse(d))}};
-$("go").onclick=search;$("q").onkeydown=e=>{if(e.key==="Enter")search()};
+let typing;
+$("results").onclick=e=>{const b=e.target.closest("button");if(b){$("results").hidden=true;load(JSON.parse(b.dataset.p))}};
+$("go").onclick=search;$("q").onkeydown=e=>{if(e.key==="Enter"){clearTimeout(typing);search()}};
+$("q").oninput=()=>{clearTimeout(typing);typing=setTimeout(search,450)};
+
+// แตะบนแผนที่ = เลือกจุดนั้นเป๊ะ ๆ
+async function pickOnMap(e){
+  const lat=+e.latlng.lat.toFixed(4),lon=+e.latlng.lng.toFixed(4);
+  let name=`จุดที่เลือก (${lat}, ${lon})`;
+  try{const r=await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=16&accept-language=th&lat=${lat}&lon=${lon}`).then(r=>r.json());
+    if(r.display_name)name="📌 "+r.display_name.split(",").slice(0,3).join(",");}catch(_){}
+  load({name,lat,lon});
+}
 $("gps").onclick=()=>navigator.geolocation?.getCurrentPosition(
   pos=>load({name:"ตำแหน่งปัจจุบัน",lat:+pos.coords.latitude.toFixed(3),lon:+pos.coords.longitude.toFixed(3)}),
   ()=>alert("เปิดสิทธิ์ตำแหน่งไม่ได้ ใช้ค้นหาชื่อเมืองแทน"));
