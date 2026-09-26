@@ -43,6 +43,12 @@ td.r{text-align:right}
 .legend{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--mute);margin-top:8px}
 .legend i{flex:1;height:10px;border-radius:5px;background:linear-gradient(90deg,#9be38f,#2eb82e,#f5e22c,#f59d1c,#e0392b,#b0167e)}
 .muted{color:var(--mute);font-size:12px}
+.placebar{display:flex;align-items:center;gap:8px;justify-content:space-between}
+.chip{border:1px solid var(--line);background:var(--card);border-radius:99px;padding:4px 12px;font-size:13px;cursor:pointer;white-space:nowrap}
+.favs{display:flex;gap:6px;overflow-x:auto}
+.favs:empty{display:none}
+.favs .chip{display:flex;gap:6px;align-items:center}
+.favs .x{color:var(--mute)}
 #results button{display:block;width:100%;text-align:left;background:none;border:0;border-top:1px solid var(--line);padding:8px 2px;cursor:pointer}
 </style>
 </head>
@@ -51,7 +57,8 @@ td.r{text-align:right}
   <header><h1>☁️ ฟ้าแม่น</h1><button class="btn" id="gps">📍 ตำแหน่งกู</button></header>
   <div class="search"><input id="q" placeholder="ค้นหาร้าน วัด โรงเรียน หมู่บ้าน อำเภอ…"><button class="btn" id="go">ค้น</button></div>
   <div id="results" class="card" hidden></div>
-  <div id="place" class="muted">กำลังโหลด…</div>
+  <div class="placebar"><span id="place" class="muted">กำลังโหลด…</span><button id="fav" class="chip">☆ บันทึกที่นี่</button></div>
+  <div id="favs" class="favs"></div>
 
   <section class="card"><div class="now"><div class="t" id="tnow">--°</div><div><div id="wnow">-</div><div class="d" id="dnow"></div></div></div>
     <p class="alert" id="alert"></p></section>
@@ -82,9 +89,18 @@ let map,radar;
 
 function save(p){try{localStorage.setItem("place",JSON.stringify(p))}catch(e){}}
 function loadSaved(){try{return JSON.parse(localStorage.getItem("place"))}catch(e){return null}}
+// ที่โปรด: เก็บไว้ในเครื่อง กดทีเดียวสลับได้
+function getFavs(){try{return JSON.parse(localStorage.getItem("favs"))||[]}catch(e){return[]}}
+function setFavs(f){try{localStorage.setItem("favs",JSON.stringify(f))}catch(e){}renderFavs()}
+function renderFavs(){
+  const f=getFavs();
+  $("favs").innerHTML=f.map((p,i)=>`<button class="chip" data-i="${i}">⭐ ${esc(p.name)} <span class="x" data-del="${i}">✕</span></button>`).join("");
+  const on=cur&&f.some(p=>p.lat===cur.lat&&p.lon===cur.lon);
+  $("fav").textContent=on?"★ บันทึกแล้ว":"☆ บันทึกที่นี่";$("fav").disabled=on;
+}
 
 async function load(p){
-  cur=p;save(p);$("place").textContent="📍 "+p.name;
+  cur=p;save(p);renderFavs();$("place").textContent="📍 "+p.name;
   const base=`https://api.open-meteo.com/v1/forecast?latitude=${p.lat}&longitude=${p.lon}&timezone=auto`;
   try{
     const [best,multi]=await Promise.all([
@@ -176,8 +192,16 @@ let me,frames=[],layers=[],anim;
 const TYPE={school:"🏫 โรงเรียน",university:"🎓 มหาวิทยาลัย",hospital:"🏥 โรงพยาบาล",clinic:"🏥 คลินิก",place_of_worship:"🛕 วัด/ศาสนสถาน",marketplace:"🛒 ตลาด",mall:"🛍️ ห้าง",supermarket:"🛒 ซูเปอร์มาร์เก็ต",convenience:"🏪 ร้านสะดวกซื้อ",restaurant:"🍜 ร้านอาหาร",cafe:"☕ คาเฟ่",fuel:"⛽ ปั๊ม",bank:"🏦 ธนาคาร",hotel:"🏨 โรงแรม",station:"🚉 สถานี",park:"🌳 สวน",police:"👮 สถานีตำรวจ",townhall:"🏛️ ที่ว่าการ",village:"🏘️ หมู่บ้าน",hamlet:"🏘️ หมู่บ้าน",suburb:"📍 ย่าน",city:"🏙️ เมือง",town:"🏙️ เมือง",residential:"🏘️ หมู่บ้าน/ที่พัก"};
 const esc=s=>String(s).replace(/[&<>"']/g,c=>"&#"+c.charCodeAt(0)+";");
 let cur=null,seq=0;
+// วางพิกัด "13.97, 100.30" หรือลิงก์ Google Maps แบบยาว ก็ได้
+function parseCoords(q){
+  const m=q.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/)||q.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/)||q.match(/[?&](?:q|query|ll)=(-?\d+\.\d+),\s*(-?\d+\.\d+)/)||q.match(/^\s*(-?\d{1,2}\.\d+)\s*[, ]\s*(-?\d{2,3}\.\d+)\s*$/);
+  return m?{lat:+(+m[1]).toFixed(4),lon:+(+m[2]).toFixed(4)}:null;
+}
 async function search(){
   const q=$("q").value.trim();const box=$("results");
+  const c=parseCoords(q);
+  if(c){box.hidden=true;$("q").value="";pickOnMap({latlng:{lat:c.lat,lng:c.lon}});return}
+  if(/goo\.gl|maps\.app/.test(q)){box.hidden=false;box.innerHTML="ลิงก์ย่อของ Google Maps อ่านพิกัดไม่ได้<br><span class='muted'>ใน Google Maps กดค้างที่จุดนั้น → แตะตัวเลขพิกัดด้านบนเพื่อคัดลอก → เอามาวางตรงนี้</span>";return}
   if(q.length<2){box.hidden=true;return}
   const my=++seq;box.hidden=false;box.textContent="กำลังค้น…";
   const near=cur?`&lat=${cur.lat}&lon=${cur.lon}`:"";
@@ -199,9 +223,14 @@ async function search(){
   const hit=x=>x.name&&x.name.includes(q)?0:1;
   list.sort((a,b)=>hit(a)-hit(b));
   box.innerHTML=list.slice(0,10).map(p=>`<button data-p="${esc(JSON.stringify({name:p.name,lat:p.lat,lon:p.lon}))}"><b>${esc(p.name)}</b> <span class="muted">${p.type}</span><br><span class="muted">${esc(p.sub)}</span></button>`).join("")
-    ||"ไม่เจอ ลองพิมพ์ชื่อร้าน วัด โรงเรียน หรืออำเภอ<br><span class='muted'>หรือแตะบนแผนที่เรดาร์เพื่อเลือกจุดเอง</span>";
+    ||`ไม่เจอในแผนที่ฟรี (ร้านเล็ก ๆ มักไม่มี)<br><span class='muted'>ทางลัด: เปิด Google Maps → กดค้างที่ร้าน → แตะตัวเลขพิกัดด้านบนเพื่อคัดลอก → วางในช่องค้นหานี้ แล้วกด ☆ บันทึกที่นี่ ครั้งเดียวจบ<br>หรือแตะบนแผนที่เรดาร์เลือกจุดเอง</span>`;
 }
 let typing;
+$("fav").onclick=()=>{if(!cur)return;const f=getFavs();const n=prompt("ตั้งชื่อ",cur.name.replace(/^📌 /,""));
+  f.push({...cur,name:(n||cur.name.replace(/^📌 /,"").split(",")[0]).slice(0,30)});setFavs(f)};
+$("favs").onclick=e=>{const d=e.target.dataset.del;
+  if(d!=null){const f=getFavs();f.splice(+d,1);setFavs(f);return}
+  const b=e.target.closest("button");if(b)load(getFavs()[+b.dataset.i])};
 $("results").onclick=e=>{const b=e.target.closest("button");if(b){$("results").hidden=true;load(JSON.parse(b.dataset.p))}};
 $("go").onclick=search;$("q").onkeydown=e=>{if(e.key==="Enter"){clearTimeout(typing);search()}};
 $("q").oninput=()=>{clearTimeout(typing);typing=setTimeout(search,450)};
