@@ -44,7 +44,7 @@ td.r{text-align:right}
 <body>
 <main>
   <header><h1>☁️ ฟ้าแม่น</h1><button class="btn" id="gps">📍 ตำแหน่งกู</button></header>
-  <div class="search"><input id="q" placeholder="ค้นหาเมือง เช่น Bangkok, Chiang Mai"><button class="btn" id="go">ค้น</button></div>
+  <div class="search"><input id="q" placeholder="ค้นหา เช่น ไทรน้อย, เชียงใหม่"><button class="btn" id="go">ค้น</button></div>
   <div id="results" class="card" hidden></div>
   <div id="place" class="muted">กำลังโหลด…</div>
 
@@ -151,9 +151,15 @@ async function renderMap(p){
 
 async function search(){
   const q=$("q").value.trim();if(!q)return;
-  const j=await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=6&language=th`).then(r=>r.json());
-  const box=$("results");box.hidden=false;
-  box.innerHTML=(j.results||[]).map(r=>`<button data-p='${JSON.stringify({name:[r.name,r.admin1,r.country].filter(Boolean).join(", "),lat:r.latitude,lon:r.longitude}).replace(/'/g,"&#39;")}'>${r.name}, ${r.admin1||""} ${r.country||""}</button>`).join("")||"ไม่เจอ ลองพิมพ์ภาษาอังกฤษ";
+  const box=$("results");box.hidden=false;box.textContent="กำลังค้น…";
+  let list=[];
+  try{
+    // OpenStreetMap รู้จักชื่อไทยถึงระดับอำเภอ/ตำบล
+    const j=await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&accept-language=th&q=${encodeURIComponent(q)}`).then(r=>r.json());
+    list=j.map(r=>({name:r.display_name.split(",").slice(0,3).join(",").trim(),lat:+(+r.lat).toFixed(3),lon:+(+r.lon).toFixed(3),full:r.display_name}));
+  }catch(e){}
+  const esc=s=>s.replace(/[&<>"']/g,c=>"&#"+c.charCodeAt(0)+";");
+  box.innerHTML=list.map(p=>`<button data-p="${esc(JSON.stringify({name:p.name,lat:p.lat,lon:p.lon}))}">${esc(p.full)}</button>`).join("")||"ไม่เจอ ลองพิมพ์ชื่ออำเภอหรือจังหวัด";
 }
 $("results").onclick=e=>{const d=e.target.dataset.p;if(d){$("results").hidden=true;load(JSON.parse(d))}};
 $("go").onclick=search;$("q").onkeydown=e=>{if(e.key==="Enter")search()};
