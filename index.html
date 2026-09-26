@@ -180,8 +180,8 @@ function renderDays(b,m){
 
 async function renderMap(p){
   if(!window.L)return;
-  if(!map){map=L.map("map",{attributionControl:false,zoomControl:false}).setView([p.lat,p.lon],9);
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:15}).addTo(map);
+  if(!map){map=L.map("map",{attributionControl:false,zoomControl:false,minZoom:6,maxZoom:12}).setView([p.lat,p.lon],9);
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:12}).addTo(map);
     map.on("click",pickOnMap);}
   else map.setView([p.lat,p.lon],9);
   // หมุดตำแหน่ง + วง 10 กม. / 25 กม.
@@ -195,7 +195,7 @@ async function renderMap(p){
     frames=[...j.radar.past.slice(-6),...(j.radar.nowcast||[])];
     clearInterval(anim);layers.forEach(l=>map.removeLayer(l));
     // สีแบบ TWC (4): เขียว→เหลือง→แดง ตรงกับแถบสีข้างล่าง
-    layers=frames.map(f=>L.tileLayer(`${j.host}${f.path}/256/{z}/{x}/{y}/4/1_1.png`,{opacity:0,maxNativeZoom:7,maxZoom:12}).addTo(map));
+    layers=frames.map(f=>L.tileLayer(`${j.host}${f.path}/256/{z}/{x}/{y}/4/1_1.png`,{opacity:0,maxNativeZoom:7,maxZoom:19}).addTo(map));
     const nowIdx=j.radar.past.slice(-6).length-1;
     let i=nowIdx;
     const show=k=>{layers.forEach((l,n)=>l.setOpacity(n===k?.8:0));
