@@ -93,7 +93,7 @@ td.r{text-align:right}
 
   <section class="card"><h2>7 วัน · รวม 3 โมเดล (ECMWF / GFS / ICON)</h2>
     <table id="days"></table>
-    <p class="muted">"มั่นใจ" = โมเดลเห็นตรงกันแค่ไหน ยิ่งต่างกันมาก ยิ่งไม่แน่นอน</p></section>
+    <p class="muted">"แม่นแค่ไหน" = เอาพยากรณ์ 3 แหล่ง (ยุโรป/อเมริกา/เยอรมัน) มาเทียบกัน ถ้าบอกตรงกัน = เชื่อได้ ถ้าบอกต่างกันเยอะ = ไม่แน่นอน อาจเปลี่ยน</p></section>
 
   <section class="card"><h2>เรดาร์ฝน · ภาพขยับให้เห็นว่าฝนไปทางไหน</h2>
     <div class="rtop"><span id="radarTime">กำลังโหลด…</span><span class="muted">🔴 = มึง · วงใน 10 กม. · วงนอก 25 กม. · แตะแผนที่เพื่อเลือกจุด</span></div>
@@ -184,14 +184,14 @@ function renderDays(b,m){
     const lo=stat(MODELS.map(k=>D["temperature_2m_min_"+k]?.[i]));
     const rn=stat(MODELS.map(k=>D["precipitation_sum_"+k]?.[i]));
     const spread=(hi?.spread||0)+(rn?(rn.spread/(rn.m+5))*3:0);
-    const [lbl,col]=spread<2.5?["สูง","var(--good)"]:spread<5?["กลาง","var(--warn)"]:["ต่ำ","var(--bad)"];
+    const [lbl,col]=spread<2.5?["✓ เชื่อได้","var(--good)"]:spread<5?["พอเชื่อได้","var(--warn)"]:["? ไม่แน่นอน","var(--bad)"];
     const d=new Date(D.time[i]);
     rows+=`<tr><td>${i?DAY[d.getDay()]+" "+d.getDate():"วันนี้"}</td><td>${wc(b.daily.weather_code[i]).split(" ")[0]}</td>
       <td class="r">💧${b.daily.precipitation_probability_max[i]??"-"}%<br><span class="muted">${rn?rn.m.toFixed(1):"-"}mm</span></td>
       <td class="r"><b>${hi?Math.round(hi.m):"-"}°</b> / ${lo?Math.round(lo.m):"-"}°</td>
       <td class="r"><span class="pill conf" style="background:${col}">${lbl}</span></td></tr>`;
   }
-  $("days").innerHTML=rows;
+  $("days").innerHTML=`<tr class="muted"><td>วัน</td><td></td><td class="r">ฝน</td><td class="r">สูง/ต่ำ</td><td class="r">แม่นแค่ไหน</td></tr>`+rows;
 }
 
 // ---- เตือนน้ำท่วม: ฝนสะสม (น้ำรอระบาย/น้ำป่า) + น้ำในลำน้ำ GloFAS เทียบสถิติ 10 ปี ----
