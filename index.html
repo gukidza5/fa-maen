@@ -38,6 +38,7 @@ td.r{text-align:right}
 .conf{font-size:12px}
 #map{height:340px;border-radius:10px}
 .rtop{display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px;font-size:14px;margin-bottom:6px}
+.rctl{display:flex;gap:8px;align-items:center;margin-bottom:8px}.rctl input{flex:1;accent-color:var(--acc)}
 .track{height:4px;background:var(--line);border-radius:4px;margin-bottom:8px;overflow:hidden}
 .track i{display:block;height:100%;background:var(--acc);transition:width .3s}
 .legend{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--mute);margin-top:8px}
@@ -95,11 +96,11 @@ td.r{text-align:right}
     <table id="days"></table>
     <p class="muted">"แม่นแค่ไหน" = เอาพยากรณ์ 3 แหล่ง (ยุโรป/อเมริกา/เยอรมัน) มาเทียบกัน ถ้าบอกตรงกัน = เชื่อได้ ถ้าบอกต่างกันเยอะ = ไม่แน่นอน อาจเปลี่ยน</p></section>
 
-  <section class="card"><h2>เรดาร์ฝน · ภาพขยับให้เห็นว่าฝนไปทางไหน</h2>
+  <section class="card"><h2>แผนที่ฝน · เรดาร์จริง 1 ชม. ก่อน → พยากรณ์ 24 ชม.</h2>
     <div class="rtop"><span id="radarTime">กำลังโหลด…</span><span class="muted">🔴 = มึง · วงใน 10 กม. · วงนอก 25 กม. · แตะแผนที่เพื่อเลือกจุด</span></div>
-    <div class="track"><i id="radarBar"></i></div>
+    <div class="rctl"><button class="chip" id="radarPlay">⏸</button><input type="range" id="radarSlider" min="0" value="0" aria-label="เลื่อนเวลา"></div>
     <div id="map"></div>
-    <div class="legend"><span>ฝนเบา</span><i></i><span>หนักมาก</span></div></section>
+    <div class="legend"><span>ฝนเบา</span><i></i><span>หนักมาก</span></div><p class="muted">ช่วงพยากรณ์เป็นช่อง ๆ ละ ~10 กม. (ละเอียดน้อยกว่าเรดาร์) · ลากแถบเพื่อดูเวลาที่ต้องการ</p></section>
 
   <p class="muted">ข้อมูล: Open-Meteo, RainViewer · ไม่มีพยากรณ์ไหนแม่น 100% ดูเปอร์เซ็นต์ประกอบ</p>
 </main>
@@ -244,23 +245,47 @@ async function renderMap(p){
       L.circle([p.lat,p.lon],{radius:10000,color:"#12242f",weight:1.5,fill:false}),
       L.circleMarker([p.lat,p.lon],{radius:7,color:"#fff",weight:3,fillColor:"#e0392b",fillOpacity:1})];
   me.forEach(l=>l.addTo(map));
+  clearInterval(anim);layers.forEach(l=>map.removeLayer(l));layers=[];frames=[];
+  // 1) เรดาร์จริง 1 ชม. ย้อนหลัง (RainViewer)
   try{
     const j=await fetch("https://api.rainviewer.com/public/weather-maps.json").then(r=>r.json());
-    frames=[...j.radar.past.slice(-6),...(j.radar.nowcast||[])];
-    clearInterval(anim);layers.forEach(l=>map.removeLayer(l));
-    // สีแบบ TWC (4): เขียว→เหลือง→แดง ตรงกับแถบสีข้างล่าง
-    layers=frames.map(f=>L.tileLayer(`${j.host}${f.path}/256/{z}/{x}/{y}/4/1_1.png`,{opacity:0,maxNativeZoom:7,maxZoom:19}).addTo(map));
-    const nowIdx=j.radar.past.slice(-6).length-1;
-    let i=nowIdx;
-    const show=k=>{layers.forEach((l,n)=>l.setOpacity(n===k?.8:0));
-      const f=frames[k],t=new Date(f.time*1000).toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"});
-      $("radarTime").innerHTML=k===nowIdx?`<b>ตอนนี้</b> ${t} น.`:k>nowIdx?`<b style="color:var(--warn)">คาดการณ์</b> ${t} น.`:`ย้อนหลัง ${t} น.`;
-      $("radarBar").style.width=((k+1)/frames.length*100)+"%";};
-    show(i);
-    anim=setInterval(()=>{i=(i+1)%frames.length;show(i)},900);
-  }catch(e){$("radarTime").textContent="โหลดเรดาร์ไม่ได้"}
+    for(const f of [...j.radar.past.slice(-6),...(j.radar.nowcast||[])]){
+      const l=L.tileLayer(`${j.host}${f.path}/256/{z}/{x}/{y}/4/1_1.png`,{opacity:0,maxNativeZoom:7,maxZoom:19}).addTo(map);
+      layers.push(l);frames.push({t:f.time*1000,kind:"radar",show:v=>l.setOpacity(v?.8:0)});}
+  }catch(e){}
+  const nowIdx=Math.max(0,frames.length-1);
+  // 2) พยากรณ์ฝนรายชั่วโมง 24 ชม. เป็นตารางจุด 11×11 รอบตัว (Open-Meteo)
+  try{
+    const N=11,step=.1,lats=[],lons=[];
+    for(let a=0;a<N;a++)for(let b=0;b<N;b++){lats.push((p.lat+(a-5)*step).toFixed(3));lons.push((p.lon+(b-5)*step).toFixed(3));}
+    const g=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&hourly=precipitation&forecast_hours=25&timezone=auto`).then(r=>r.json());
+    const cells=Array.isArray(g)?g:[g],times=cells[0].hourly.time,off=cells[0].utc_offset_seconds;
+    const rend=L.canvas();
+    for(let h=0;h<times.length;h++){
+      const t=Date.parse(times[h]+"Z")-off*1000;if(t<Date.now()-30*6e4)continue;
+      const grp=L.layerGroup();
+      cells.forEach((c,n)=>{const mm=c.hourly.precipitation[h];const col=rainCol(mm);if(!col)return;
+        const la=+lats[n],lo=+lons[n];
+        L.rectangle([[la-step/2,lo-step/2],[la+step/2,lo+step/2]],{renderer:rend,stroke:false,fillColor:col,fillOpacity:.6,interactive:false}).addTo(grp);});
+      layers.push(grp);frames.push({t,kind:"fc",show:v=>v?grp.addTo(map):map.removeLayer(grp)});
+    }
+  }catch(e){}
+  if(!frames.length){$("radarTime").textContent="โหลดเรดาร์ไม่ได้";return}
+  let i=nowIdx;
+  const sl=$("radarSlider");sl.max=frames.length-1;
+  show=k=>{i=k;frames.forEach((f,n)=>f.show(n===k));
+    const f=frames[k],t=new Date(f.t).toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"});
+    const day=new Date(f.t).getDate()!==new Date().getDate()?"พรุ่งนี้ ":"";
+    $("radarTime").innerHTML=f.kind==="fc"?`<b style="color:var(--warn)">พยากรณ์</b> ${day}${t} น.`:k===nowIdx?`<b>เรดาร์ ตอนนี้</b> ${t} น.`:`เรดาร์ย้อนหลัง ${t} น.`;
+    sl.value=k;};
+  show(i);
+  const play=()=>{clearInterval(anim);anim=setInterval(()=>show((i+1)%frames.length),800);$("radarPlay").textContent="⏸";};
+  $("radarPlay").onclick=()=>{if($("radarPlay").textContent==="⏸"){clearInterval(anim);$("radarPlay").textContent="▶"}else play()};
+  sl.oninput=()=>{clearInterval(anim);$("radarPlay").textContent="▶";show(+sl.value)};
+  play();
 }
-let me,frames=[],layers=[],anim;
+function rainCol(mm){return mm<.2?null:mm<1?"#9be38f":mm<2.5?"#2eb82e":mm<5?"#f5e22c":mm<10?"#f59d1c":mm<20?"#e0392b":"#b0167e"}
+let me,frames=[],layers=[],anim,show;
 
 const TYPE={school:"🏫 โรงเรียน",university:"🎓 มหาวิทยาลัย",hospital:"🏥 โรงพยาบาล",clinic:"🏥 คลินิก",place_of_worship:"🛕 วัด/ศาสนสถาน",marketplace:"🛒 ตลาด",mall:"🛍️ ห้าง",supermarket:"🛒 ซูเปอร์มาร์เก็ต",convenience:"🏪 ร้านสะดวกซื้อ",restaurant:"🍜 ร้านอาหาร",cafe:"☕ คาเฟ่",fuel:"⛽ ปั๊ม",bank:"🏦 ธนาคาร",hotel:"🏨 โรงแรม",station:"🚉 สถานี",park:"🌳 สวน",police:"👮 สถานีตำรวจ",townhall:"🏛️ ที่ว่าการ",village:"🏘️ หมู่บ้าน",hamlet:"🏘️ หมู่บ้าน",suburb:"📍 ย่าน",city:"🏙️ เมือง",town:"🏙️ เมือง",residential:"🏘️ หมู่บ้าน/ที่พัก"};
 const esc=s=>String(s).replace(/[&<>"']/g,c=>"&#"+c.charCodeAt(0)+";");
