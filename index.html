@@ -211,17 +211,19 @@ async function renderFlood(b,m,p){
     const y=new Date(now-864e5).toISOString().slice(0,10),from=new Date(now-10*365*864e5).toISOString().slice(0,10);
     const u=`https://flood-api.open-meteo.com/v1/flood?latitude=${p.lat}&longitude=${p.lon}&daily=river_discharge`;
     const [hist,fc]=await Promise.all([fetch(u+`&start_date=${from}&end_date=${y}`).then(r=>r.json()),fetch(u+"&past_days=7&forecast_days=14").then(r=>r.json())]);
-    const hv=hist.daily.river_discharge.filter(x=>x!=null),fv=fc.daily.river_discharge;
+    // เทียบกับช่วงเดียวกันของปี (±20 วัน) ใน 10 ปีที่ผ่านมา ไม่ใช่ทั้งปีที่มีหน้าแล้งปน
+    const doy=t=>{const d=new Date(t);return (d-new Date(d.getFullYear(),0,0))/864e5},today=doy(now);
+    const hv=hist.daily.river_discharge.filter((x,i)=>x!=null&&Math.min(Math.abs(doy(hist.daily.time[i])-today),365-Math.abs(doy(hist.daily.time[i])-today))<=20),fv=fc.daily.river_discharge;
     const p90=pct(hv,.9),p98=pct(hv,.98),med=pct(hv,.5);
     const ahead=fv.slice(7),peak=Math.max(...ahead),pi=ahead.indexOf(peak);
     const when=pi===0?"วันนี้":new Date(fc.daily.time[7+pi]).toLocaleDateString("th-TH",{weekday:"short",day:"numeric",month:"short"});
     const ratio=peak/(med||1);
-    if(peak>=p98){lvl=2;why.push(`ลำน้ำจะขึ้นสูงสุดในรอบ 10 ปี ช่วง${when}`)}
+    if(peak>=p98){lvl=2;why.push(`ลำน้ำจะสูงระดับติดอันดับของ 10 ปี ช่วง${when}`)}
     else if(peak>=p90){lvl=Math.max(lvl,1);why.push(`ลำน้ำสูงกว่าปกติ ช่วง${when}`)}
-    rivTxt=ratio>=1.5?`${ratio.toFixed(1)}× ปกติ`:"ปกติ";
+    rivTxt=ratio>=1.5?`${ratio.toFixed(1)}× ของปกติช่วงนี้`:"ปกติ";
     const mx=Math.max(...fv,p98);
     $("fSpark").innerHTML=fv.map((v,i)=>`<i class="${i<7?"past":""} ${v>=p90?"hi":""}" style="height:${v/mx*100}%" title="${fc.daily.time[i]}: ${v} m³/s"></i>`).join("")+`<div class="line" style="bottom:${p90/mx*100}%"></div>`;
-    note="กราฟ: ปริมาณน้ำในลำน้ำ 7 วันก่อน (จาง) → 14 วันข้างหน้า · เส้นประแดง = ระดับที่สูงกว่า 90% ของ 10 ปีที่ผ่านมา · ข้อมูล GloFAS ละเอียด ~5 กม. ";
+    note="กราฟ: ปริมาณน้ำในลำน้ำ 7 วันก่อน (จาง) → 14 วันข้างหน้า · เส้นประแดง = สูงกว่า 90% ของช่วงเดียวกันใน 10 ปีที่ผ่านมา · ข้อมูล GloFAS ละเอียด ~5 กม. ";
   }catch(e){$("fSpark").innerHTML="";note="โหลดข้อมูลลำน้ำไม่ได้ ใช้แค่ฝนสะสม · "}
   $("fRiv").textContent=rivTxt;
   const L=[["ปกติ","var(--good)","✅ ยังไม่มีสัญญาณน้ำท่วม"],["เฝ้าระวัง","var(--warn)","⚠️ เฝ้าระวัง: "],["เสี่ยงสูง","var(--bad)","🚨 เสี่ยงน้ำท่วม: "]][lvl];
