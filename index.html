@@ -91,7 +91,7 @@ td.r{text-align:right}
 <div id="picker" hidden>
   <div id="pmap"></div>
   <div class="pin">📍</div>
-  <div class="ptop"><button class="chip" id="pClose">✕ ปิด</button><span>ลากแผนที่ให้หมุดอยู่ตรงที่อยู่</span></div>
+  <div class="ptop"><button class="chip" id="pClose">✕ ปิด</button><button class="chip" id="pLayer">🗺️ แผนที่</button><span>ลากแผนที่ให้หมุดอยู่ตรงที่อยู่</span></div>
   <div class="pbottom">
     <div id="pAddr" class="paddr">กำลังหาที่อยู่…</div>
     <div class="prow"><button class="chip" id="pMe">🎯 ตำแหน่งกู</button><button class="btn" id="pUse">📍 ใช้ตรงนี้</button></div>
@@ -251,10 +251,18 @@ function openPicker(){
   $("picker").hidden=false;
   const c=cur||{lat:13.754,lon:100.501};
   if(!pmap){pmap=L.map("pmap",{zoomControl:false,attributionControl:false});
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19}).addTo(pmap);
+    const E="https://server.arcgisonline.com/ArcGIS/rest/services/";
+    // ดาวเทียม (Esri) + ชื่อถนน/สถานที่ทับ  | แผนที่ธรรมดา (OSM)
+    const sat=L.layerGroup([L.tileLayer(E+"World_Imagery/MapServer/tile/{z}/{y}/{x}",{maxZoom:19}),
+      L.tileLayer(E+"Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}",{maxZoom:19}),
+      L.tileLayer(E+"Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",{maxZoom:19})]);
+    const street=L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19});
+    let isSat=true;sat.addTo(pmap);
+    $("pLayer").onclick=()=>{isSat=!isSat;pmap.removeLayer(isSat?street:sat);(isSat?sat:street).addTo(pmap);
+      $("pLayer").textContent=isSat?"🗺️ แผนที่":"🛰️ ดาวเทียม"};
     pmap.on("movestart",()=>{$("pAddr").textContent="…";$("pUse").disabled=true});
     pmap.on("moveend",()=>{clearTimeout(pTimer);pTimer=setTimeout(pickAddr,500)});}
-  pmap.setView([c.lat,c.lon],16);setTimeout(()=>pmap.invalidateSize(),50);
+  pmap.setView([c.lat,c.lon],17);setTimeout(()=>pmap.invalidateSize(),50);
 }
 async function pickAddr(){
   const {lat,lng}=pmap.getCenter();pAddr="";
