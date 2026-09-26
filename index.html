@@ -43,6 +43,15 @@ td.r{text-align:right}
 .legend{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--mute);margin-top:8px}
 .legend i{flex:1;height:10px;border-radius:5px;background:linear-gradient(90deg,#9be38f,#2eb82e,#f5e22c,#f59d1c,#e0392b,#b0167e)}
 .muted{color:var(--mute);font-size:12px}
+.pickbtn{width:100%;padding:11px;background:var(--card);color:var(--acc);border:1.5px solid var(--acc);font-weight:600}
+#picker{position:fixed;inset:0;z-index:9999;background:var(--bg)}
+#pmap{position:absolute;inset:0}
+#picker .pin{position:absolute;left:50%;top:50%;transform:translate(-50%,-100%);font-size:40px;z-index:1000;pointer-events:none;filter:drop-shadow(0 3px 3px rgba(0,0,0,.35))}
+.ptop{position:absolute;top:calc(10px + env(safe-area-inset-top));left:12px;right:12px;z-index:1000;display:flex;gap:8px;align-items:center;font-size:13px}
+.ptop span{background:var(--card);padding:5px 10px;border-radius:99px;box-shadow:0 1px 4px rgba(0,0,0,.2)}
+.pbottom{position:absolute;left:0;right:0;bottom:0;z-index:1000;background:var(--card);border-radius:16px 16px 0 0;padding:14px 16px calc(14px + env(safe-area-inset-bottom));box-shadow:0 -2px 10px rgba(0,0,0,.15);display:grid;gap:10px}
+.paddr{font-weight:600;min-height:1.5em}
+.prow{display:flex;gap:8px}.prow .btn{flex:1;padding:12px;font-size:16px}
 .placebar{display:flex;align-items:center;gap:8px;justify-content:space-between}
 .chip{border:1px solid var(--line);background:var(--card);border-radius:99px;padding:4px 12px;font-size:13px;cursor:pointer;white-space:nowrap}
 .favs{display:flex;gap:6px;overflow-x:auto}
@@ -56,6 +65,7 @@ td.r{text-align:right}
 <main>
   <header><h1>☁️ ฟ้าแม่น</h1><button class="btn" id="gps">📍 ตำแหน่งกู</button></header>
   <div class="search"><input id="q" placeholder="ค้นหาร้าน วัด โรงเรียน หมู่บ้าน อำเภอ…"><button class="btn" id="go">ค้น</button></div>
+  <button class="btn pickbtn" id="openPick">🗺️ ปักหมุดบนแผนที่ (แม่นสุด)</button>
   <div id="results" class="card" hidden></div>
   <div class="placebar"><span id="place" class="muted">กำลังโหลด…</span><button id="fav" class="chip">☆ บันทึกที่นี่</button></div>
   <div id="favs" class="favs"></div>
@@ -78,6 +88,15 @@ td.r{text-align:right}
   <p class="muted">ข้อมูล: Open-Meteo, RainViewer · ไม่มีพยากรณ์ไหนแม่น 100% ดูเปอร์เซ็นต์ประกอบ</p>
 </main>
 
+<div id="picker" hidden>
+  <div id="pmap"></div>
+  <div class="pin">📍</div>
+  <div class="ptop"><button class="chip" id="pClose">✕ ปิด</button><span>ลากแผนที่ให้หมุดอยู่ตรงที่อยู่</span></div>
+  <div class="pbottom">
+    <div id="pAddr" class="paddr">กำลังหาที่อยู่…</div>
+    <div class="prow"><button class="chip" id="pMe">🎯 ตำแหน่งกู</button><button class="btn" id="pUse">📍 ใช้ตรงนี้</button></div>
+  </div>
+</div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 const $=id=>document.getElementById(id);
@@ -226,6 +245,28 @@ async function search(){
     ||`ไม่เจอในแผนที่ฟรี (ร้านเล็ก ๆ มักไม่มี)<br><span class='muted'>ทางลัด: เปิด Google Maps → กดค้างที่ร้าน → แตะตัวเลขพิกัดด้านบนเพื่อคัดลอก → วางในช่องค้นหานี้ แล้วกด ☆ บันทึกที่นี่ ครั้งเดียวจบ<br>หรือแตะบนแผนที่เรดาร์เลือกจุดเอง</span>`;
 }
 let typing;
+// ---- ปักหมุดแบบ Grab: หมุดอยู่กลางจอ ลากแผนที่เอา ----
+let pmap,pTimer,pAddr="";
+function openPicker(){
+  $("picker").hidden=false;
+  const c=cur||{lat:13.754,lon:100.501};
+  if(!pmap){pmap=L.map("pmap",{zoomControl:false,attributionControl:false});
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19}).addTo(pmap);
+    pmap.on("movestart",()=>{$("pAddr").textContent="…";$("pUse").disabled=true});
+    pmap.on("moveend",()=>{clearTimeout(pTimer);pTimer=setTimeout(pickAddr,500)});}
+  pmap.setView([c.lat,c.lon],16);setTimeout(()=>pmap.invalidateSize(),50);
+}
+async function pickAddr(){
+  const {lat,lng}=pmap.getCenter();pAddr="";
+  try{const r=await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=18&accept-language=th&lat=${lat}&lon=${lng}`).then(r=>r.json());
+    pAddr=(r.display_name||"").split(",").slice(0,3).join(",");}catch(_){}
+  $("pAddr").textContent=pAddr||`${lat.toFixed(5)}, ${lng.toFixed(5)}`;$("pUse").disabled=false;
+}
+$("openPick").onclick=openPicker;
+$("pClose").onclick=()=>$("picker").hidden=true;
+$("pMe").onclick=()=>navigator.geolocation?.getCurrentPosition(p=>pmap.setView([p.coords.latitude,p.coords.longitude],17),()=>{$("pAddr").textContent="เปิดสิทธิ์ตำแหน่งไม่ได้ ลากแผนที่เอาเอง"},{enableHighAccuracy:true});
+$("pUse").onclick=()=>{const {lat,lng}=pmap.getCenter();$("picker").hidden=true;
+  load({name:"📌 "+(pAddr||"จุดที่ปักหมุด"),lat:+lat.toFixed(4),lon:+lng.toFixed(4)});};
 $("fav").onclick=()=>{if(!cur)return;const f=getFavs();const n=prompt("ตั้งชื่อ",cur.name.replace(/^📌 /,""));
   f.push({...cur,name:(n||cur.name.replace(/^📌 /,"").split(",")[0]).slice(0,30)});setFavs(f)};
 $("favs").onclick=e=>{const d=e.target.dataset.del;
