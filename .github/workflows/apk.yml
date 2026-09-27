@@ -20,11 +20,16 @@ jobs:
           mkdir -p build/www && cp index.html manifest.json icon.svg build/www/
           cd build
           npm init -y >/dev/null
-          npm i @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7
+          npm i @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7 @capacitor/local-notifications@7 @capacitor/assets
           npx cap init "ฟ้าแม่น" com.gukidza5.famaen --web-dir www
           npx cap add android
           # ขอสิทธิ์ตำแหน่งให้ปุ่ม 📍 ใช้ได้
           sed -i 's#<application#<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <application#' android/app/src/main/AndroidManifest.xml
+          # ไอคอนแอป: แปลง icon.svg เป็น PNG แล้วให้ @capacitor/assets ทำทุกขนาด
+          sudo apt-get install -y -qq librsvg2-bin >/dev/null
+          mkdir -p assets && rsvg-convert -w 1024 -h 1024 ../icon.svg > assets/icon-only.png
+          npx @capacitor/assets generate --android --iconBackgroundColor '#0f2a3d' --iconBackgroundColorDark '#0f2a3d'
+          npx cap sync android
 
       - name: Build
         run: cd build/android && chmod +x gradlew && ./gradlew assembleDebug

@@ -44,6 +44,7 @@ td.r{text-align:right}
 .legend{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--mute);margin-top:8px}
 .legend i{flex:1;height:10px;border-radius:5px;background:linear-gradient(90deg,#9be38f,#2eb82e,#f5e22c,#f59d1c,#e0392b,#b0167e)}
 .muted{color:var(--mute);font-size:12px}
+.aq{display:grid;grid-template-columns:1fr 1fr;gap:10px}.aq .big{font-size:30px;font-weight:700;font-variant-numeric:tabular-nums}
 .fhead{display:flex;gap:10px;align-items:center;margin-bottom:10px}
 .fgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;font-variant-numeric:tabular-nums}
 .spark{display:flex;align-items:flex-end;gap:3px;height:54px;margin-top:12px;position:relative}
@@ -79,6 +80,15 @@ td.r{text-align:right}
 
   <section class="card"><div class="now"><div class="t" id="tnow">--°</div><div><div id="wnow">-</div><div class="d" id="dnow"></div></div></div>
     <p class="alert" id="alert"></p></section>
+
+  <section class="card"><h2>😷 ฝุ่น PM2.5 · ☀️ UV</h2>
+    <div class="aq">
+      <div><div class="muted">PM2.5 ตอนนี้</div><div class="big" id="pmNow">-</div><span class="pill" id="pmLvl">…</span></div>
+      <div><div class="muted">UV สูงสุดวันนี้</div><div class="big" id="uvMax">-</div><span class="pill" id="uvLvl">…</span></div>
+    </div>
+    <p id="aqTip"></p>
+    <div class="spark" id="pmSpark"></div>
+    <p class="muted">กราฟ: PM2.5 รายชั่วโมง 24 ชม. ข้างหน้า · เกณฑ์ไทย (กรมควบคุมมลพิษ) ≤15 ดีมาก, ≤25 ดี, ≤37.5 ปานกลาง, ≤75 เริ่มมีผล, >75 มีผลต่อสุขภาพ</p></section>
 
   <section class="card flood" id="flood"><h2>🌊 เสี่ยงน้ำท่วม</h2>
     <div class="fhead"><span class="pill" id="fLevel">…</span><b id="fMsg">กำลังเช็ค…</b></div>
@@ -143,7 +153,7 @@ async function load(p){
       fetch(base+"&current=temperature_2m,apparent_temperature,weather_code,relative_humidity_2m&hourly=precipitation_probability,precipitation&daily=weather_code,precipitation_probability_max&forecast_days=7").then(r=>r.json()),
       fetch(base+"&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&forecast_days=7&models="+MODELS.join(",")).then(r=>r.json())
     ]);
-    renderNow(best);renderHours(best);renderDays(best,multi);renderMap(p);renderFlood(best,multi,p);
+    renderNow(best);renderHours(best);renderDays(best,multi);renderMap(p);renderAir(p);renderFlood(best,multi,p).then(f=>scheduleAlerts(best,f,p)).catch(()=>{});lastLoad=Date.now();
   }catch(e){$("place").textContent="โหลดไม่ได้: เช็คเน็ตแล้วลองใหม่"}
 }
 
@@ -197,6 +207,26 @@ function renderDays(b,m){
 
 // ---- เตือนน้ำท่วม: ฝนสะสม (น้ำรอระบาย/น้ำป่า) + น้ำในลำน้ำ GloFAS เทียบสถิติ 10 ปี ----
 function pct(a,q){const s=[...a].sort((x,y)=>x-y);return s[Math.min(s.length-1,Math.floor(q*s.length))]}
+// ---- ฝุ่น + UV ----
+const PM=[[15,"ดีมาก","#3b9ae1"],[25,"ดี","#2e9d5b"],[37.5,"ปานกลาง","#d9b41c"],[75,"เริ่มมีผลต่อสุขภาพ","#e07b1c"],[1e9,"มีผลต่อสุขภาพ","#c9483b"]];
+const UV=[[3,"ต่ำ","#2e9d5b"],[6,"ปานกลาง","#d9b41c"],[8,"สูง","#e07b1c"],[11,"สูงมาก","#c9483b"],[1e9,"อันตราย","#8e3bb5"]];
+const lv=(T,v)=>T.find(x=>v<=x[0]);
+async function renderAir(p){
+  try{
+    const a=await fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${p.lat}&longitude=${p.lon}&current=pm2_5&hourly=pm2_5,uv_index&forecast_hours=24&timezone=auto`).then(r=>r.json());
+    const pm=a.current.pm2_5,uvs=a.hourly.uv_index,uvMax=Math.max(...uvs.map(x=>x||0)),pmL=lv(PM,pm),uvL=lv(UV,uvMax);
+    $("pmNow").textContent=Math.round(pm);$("pmLvl").textContent=pmL[1];$("pmLvl").style.background=pmL[2];
+    $("uvMax").textContent=uvMax.toFixed(0);$("uvLvl").textContent=uvL[1];$("uvLvl").style.background=uvL[2];
+    const uh=uvs.map((v,i)=>v>=6?a.hourly.time[i].slice(11,13):null).filter(Boolean);
+    const tips=[];
+    if(pm>75)tips.push("😷 ฝุ่นหนัก ใส่ N95 ถ้าออกนอกบ้าน ปิดหน้าต่าง");else if(pm>37.5)tips.push("😷 ฝุ่นเริ่มเยอะ คนแพ้ง่าย/เด็ก/คนแก่ใส่หน้ากาก");
+    if(uh.length)tips.push(`☀️ แดดแรงช่วง ${uh[0]}:00–${+uh.at(-1)+1}:00 น. ทากันแดด/เลี่ยงแดด`);
+    $("aqTip").textContent=tips.join(" · ")||"✅ อากาศโอเค ไม่ต้องห่วงเรื่องฝุ่นกับแดด";
+    const pv=a.hourly.pm2_5,mx=Math.max(...pv,40);
+    $("pmSpark").innerHTML=pv.map((v,i)=>`<i style="height:${v/mx*100}%;background:${lv(PM,v)[2]}" title="${a.hourly.time[i].slice(11,16)}: ${v}"></i>`).join("");
+  }catch(e){$("aqTip").textContent="โหลดข้อมูลฝุ่นไม่ได้"}
+}
+
 async function renderFlood(b,m,p){
   const now=Date.now(),H=b.hourly;let r24=0;
   for(let i=0;i<H.time.length;i++){const t=new Date(H.time[i]).getTime();if(t>=now-3.6e6&&t<now+23*3.6e6)r24+=H.precipitation[i]||0}
@@ -231,6 +261,7 @@ async function renderFlood(b,m,p){
   $("fLevel").textContent=L[0];$("fLevel").style.background=L[1];
   $("fMsg").textContent=lvl?L[2]+why.join(", "):L[2];
   $("fNote").textContent=note+"ไม่ได้ดูระบบระบายน้ำเมือง/เขื่อนปล่อยน้ำ ให้ฟังประกาศ ปภ. ประกอบ";
+  return {lvl,msg:why.join(", ")};
 }
 
 async function renderMap(p){
@@ -323,7 +354,31 @@ async function search(){
   box.innerHTML=list.slice(0,10).map(p=>`<button data-p="${esc(JSON.stringify({name:p.name,lat:p.lat,lon:p.lon}))}"><b>${esc(p.name)}</b> <span class="muted">${p.type}</span><br><span class="muted">${esc(p.sub)}</span></button>`).join("")
     ||`ไม่เจอในแผนที่ฟรี (ร้านเล็ก ๆ มักไม่มี)<br><span class='muted'>ทางลัด: เปิด Google Maps → กดค้างที่ร้าน → แตะตัวเลขพิกัดด้านบนเพื่อคัดลอก → วางในช่องค้นหานี้ แล้วกด ☆ บันทึกที่นี่ ครั้งเดียวจบ<br>หรือแตะบนแผนที่เรดาร์เลือกจุดเอง</span>`;
 }
-let typing;
+let typing,lastLoad=0;
+// ---- แจ้งเตือนเด้ง: ใช้ได้เฉพาะในแอป APK (Capacitor LocalNotifications) ----
+const LN=window.Capacitor?.Plugins?.LocalNotifications;
+async function scheduleAlerts(b,f,p){
+  if(!LN)return;
+  try{
+    const perm=await LN.requestPermissions();if(perm.display!=="granted")return;
+    const pend=await LN.getPending();if(pend.notifications.length)await LN.cancel({notifications:pend.notifications.map(n=>({id:n.id}))});
+    const H=b.hourly,now=Date.now(),off=b.utc_offset_seconds*1000,list=[];let prevRain=true,id=100;
+    for(let i=0;i<H.time.length;i++){
+      const t=Date.parse(H.time[i]+"Z")-off;if(t<now-3.6e6)continue;if(t>now+24*3.6e6)break;
+      const rain=H.precipitation_probability[i]>=60&&H.precipitation[i]>=0.5;
+      if(rain&&!prevRain){const at=Math.max(now+60e3,t-30*6e4);
+        list.push({id:id++,title:`☔ ฝนจะมา ${H.time[i].slice(11,16)} น.`,body:`${p.name.replace(/^📌 /,"").split(",")[0]} · โอกาส ${H.precipitation_probability[i]}% · ราว ${H.precipitation[i]} มม./ชม. เก็บผ้า พกร่ม`,schedule:{at:new Date(at),allowWhileIdle:true}});}
+      prevRain=rain;
+    }
+    // น้ำท่วม: เตือนวันละครั้งพอ ไม่ให้รำคาญ
+    const key="floodNotified-"+new Date().toDateString();
+    let done=false;try{done=localStorage.getItem(key)===String(f.lvl)}catch(_){}
+    if(f.lvl>=1&&!done){list.push({id:1,title:f.lvl>=2?"🚨 เสี่ยงน้ำท่วม":"⚠️ เฝ้าระวังน้ำท่วม",body:f.msg,schedule:{at:new Date(now+5e3)}});try{localStorage.setItem(key,String(f.lvl))}catch(_){}}
+    if(list.length)await LN.schedule({notifications:list.slice(0,8)});
+  }catch(e){}
+}
+// กลับเข้าแอปหลังทิ้งไว้เกิน 30 นาที = โหลดใหม่ + ตั้งเตือนใหม่
+document.addEventListener("visibilitychange",()=>{if(!document.hidden&&cur&&Date.now()-lastLoad>30*6e4)load(cur)});
 // ---- ปักหมุดแบบ Grab: หมุดอยู่กลางจอ ลากแผนที่เอา ----
 let pmap,pTimer,pAddr="";
 function openPicker(){
@@ -376,7 +431,7 @@ $("gps").onclick=()=>navigator.geolocation?.getCurrentPosition(
   ()=>alert("เปิดสิทธิ์ตำแหน่งไม่ได้ ใช้ค้นหาชื่อเมืองแทน"));
 
 load(loadSaved()||{name:"กรุงเทพฯ",lat:13.754,lon:100.501});
-if("serviceWorker" in navigator&&location.protocol!=="file:")navigator.serviceWorker.register("sw.js").catch(()=>{});
+if("serviceWorker" in navigator&&location.protocol!=="file:")navigator.serviceWorker.register("sw.js",{updateViaCache:"none"}).catch(()=>{});
 </script>
 </body>
 </html>
